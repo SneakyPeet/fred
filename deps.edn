@@ -1,2 +1,5 @@
-{:deps {}
+{:deps {com.google.api-client/google-api-client {:mvn/version "1.23.0"}
+        http-kit {:mvn/version "2.3.0"}
+        cheshire {:mvn/version "5.8.1"}
+        org.clojure/data.codec {:mvn/version "0.1.1"}}
  :paths ["src" "resources" "target" "test"]}
