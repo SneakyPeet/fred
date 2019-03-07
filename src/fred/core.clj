@@ -3,42 +3,82 @@
             [clojure.java.io :as io]
             [clojure.string :as string]))
 
-(def raw-image-folder-path "images/raw")
-(def processed-image-folder-path "images/processed")
-(def image-data-folder-path "images/data")
+(def document-data (read-string (slurp "images/raw/document-03-03-2019_clicks_42237_1.edn")))
+(def text-data (read-string (slurp "images/raw/text-03-03-2019_clicks_42237_1.edn")))
 
 
-(defn process-image-file [file]
-  (let [file-name (.getName file)
-        input-path (.getPath file)
-        output-path (str processed-image-folder-path "/" file-name)
-        {:keys [annotate-type valid?] :as result} (image/annotate-text input-path)
-        data-path (str image-data-folder-path "/" annotate-type "_" file-name ".edn")]
-    (spit data-path (pr-str result))
-    (io/copy file (io/file output-path))
-    (io/delete-file file)
-    (prn (str "Completed " file-name " | Success? " valid?))
-    valid?))
+(defn annotation-data
+  [{:keys [description boundingPoly] :as annotation}]
+  (let [[x1y1 x2y1 x2y2 x1y2] (:vertices boundingPoly)]
+    (assoc annotation
+           :top-left (:y x1y1)
+           :sort-index (:x x1y1)
+           :height (- (:x x2y1) (:x x1y1)))))
 
 
-(defn prep-folders []
-  (->> [raw-image-folder-path processed-image-folder-path image-data-folder-path]
-       (map #(.mkdir (io/file %)))))
+(defn same-row? [a1 a2]
+  (let [tolerence (* (:height a1) 0.1)
+        delta (Math/abs (- (:top-left a1) (:top-left a2)))]
+    (< delta tolerence)))
 
 
-(defn get-raw-images-files []
-  (->> (file-seq (io/file raw-image-folder-path))
-       (filter #(string/ends-with? (.getName %) ".JPG"))))
+(defn extract-rows [annotations]
+  (let [annotations (sort-by :top-left annotations)
+        current-annotation (first annotations)]
+    (loop [rows []
+           current-row [current-annotation]
+           current-annotation current-annotation
+           annotations (rest annotations)]
+      (if (empty? annotations)
+        (conj rows current-row)
+        (let [next-annotation (first annotations)
+              same-row? (same-row? current-annotation next-annotation)]
+          (if same-row?
+            (recur rows
+                   (conj current-row next-annotation)
+                   next-annotation
+                   (rest annotations))
+            (recur (conj rows current-row)
+                   [next-annotation]
+                   next-annotation
+                   (rest annotations))))))))
 
-
-(defn process-image-files []
-  (let [p-length *print-length*]
-    (prep-folders)
+(comment
+  (let [file-name "03-03-2019_clicks_42237_1"
+        image-path (str "images/raw/" file-name ".JPG")
+        data-path (str "images/raw/document-" file-name ".edn")
+        image-data (image/annotate-document image-path)
+        print-length *print-length*]
     (set! *print-length* Integer/MAX_VALUE)
-    (time
-     (->> (get-raw-images-files)
-          (map process-image-file)
-          doall))
-    (set! *print-length* p-length)))
+    (spit data-path (pr-str image-data))
+    (set! *print-length* print-length))
 
-#_(process-image-files)
+
+
+  (->> text-data
+       :data
+       :responses
+       first
+       :textAnnotations
+       rest
+       (map annotation-data)
+       extract-rows
+       (map (fn [row] (sort-by :sort-index row)))
+       (map (fn [row] (map :description row)))
+       )
+
+
+
+
+  (let [{:keys [description boundingPoly] :as annotation}
+        {:description "B/PACK",
+         :boundingPoly
+         {:vertices
+          [{:x 1065, :y 1665}
+           {:x 1423, :y 1665}
+           {:x 1423, :y 1779}
+           {:x 1065, :y 1779}]}}
+        [x1y1 x2y1 x2y2 x1y2] (:vertices boundingPoly)]
+    (assoc annotation
+           :top-left (:y x1y1)
+           :height (- (:x x2y1) (:x x1y1)))))
